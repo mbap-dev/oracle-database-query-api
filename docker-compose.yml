@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  oracle-flask-api:
+    build:
+      context: .
+    ports:
+      - "5000:5000"
+    environment:
+      ORACLE_HOST:
+      ORACLE_PORT:
+      ORACLE_SERVICE_NAME:
+      ORACLE_USER:
+      ORACLE_PASSWORD:
