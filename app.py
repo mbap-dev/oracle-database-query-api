@@ -4,17 +4,13 @@ import os
 
 app = Flask(__name__)
 
-
 oracledb.init_oracle_client(lib_dir="/usr/lib/oracle/instantclient")
 
-
-
-dsn_tns = f"{os.getenv('ORACLE_HOST')}:{os.getenv('ORACLE_PORT')}/{os.getenv('ORACLE_SERVICE_NAME')}"
-usuario = os.getenv('ORACLE_USER')
-senha = os.getenv('ORACLE_PASSWORD')
-
-
-def conectar_oracle():
+def conectar_oracle(dsn_tns=None, usuario=None, senha=None):
+    dsn_tns = dsn_tns or f"{os.getenv('ORACLE_HOST')}:{os.getenv('ORACLE_PORT')}/{os.getenv('ORACLE_SERVICE_NAME')}"
+    usuario = usuario or os.getenv('ORACLE_USER')
+    senha = senha or os.getenv('ORACLE_PASSWORD')
+    
     try:
         conn = oracledb.connect(user=usuario, password=senha, dsn=dsn_tns, mode=oracledb.DEFAULT_AUTH)
         return conn
@@ -26,11 +22,15 @@ def conectar_oracle():
 def consulta_oracle():
     data = request.get_json()
     query = data.get('query')
+    dsn_tns = data.get('dsn_tns')
+    usuario = data.get('usuario')
+    senha = data.get('senha')
     
     if not query:
         return jsonify({"erro": "Parâmetro 'query' é obrigatório"}), 400
     
-    conn = conectar_oracle()
+    conn = conectar_oracle(dsn_tns, usuario, senha)
+    
     if not conn:
         return jsonify({"erro": "Falha na conexão com o banco Oracle"}), 500
     
