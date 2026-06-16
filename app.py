@@ -25,6 +25,11 @@ def conectar_oracle(dsn_tns=None, usuario=None, senha=None):
     
     try:
         conn = oracledb.connect(user=usuario, password=senha, dsn=dsn_tns, mode=oracledb.DEFAULT_AUTH)
+        # Alinha o formato de data da sessao com o esperado pelas procedures
+        # (DD/MM/YYYY), evitando ORA-01843 em conversoes TO_DATE internas.
+        cur = conn.cursor()
+        cur.execute("ALTER SESSION SET NLS_DATE_FORMAT = 'DD/MM/YYYY'")
+        cur.close()
         return conn
     except Exception as e:
         print(f"Erro ao conectar ao Oracle: {e}")
