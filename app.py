@@ -48,5 +48,70 @@ def consulta_oracle():
         cursor.close()
         conn.close()
 
+@app.route('/procedure', methods=['POST'])
+def executar_procedure():
+    data = request.get_json()
+    nome = data.get('procedure')
+    parametros = data.get('parametros', [])
+    out_params = data.get('out_params', [])
+    dsn_tns = data.get('dsn_tns')
+    usuario = data.get('usuario')
+    senha = data.get('senha')
+
+    if not nome:
+        return jsonify({"erro": "Parâmetro 'procedure' é obrigatório"}), 400
+
+    if not isinstance(parametros, list):
+        return jsonify({"erro": "Parâmetro 'parametros' deve ser uma lista"}), 400
+
+    if not isinstance(out_params, list):
+        return jsonify({"erro": "Parâmetro 'out_params' deve ser uma lista"}), 400
+
+    conn = conectar_oracle(dsn_tns, usuario, senha)
+
+    if not conn:
+        return jsonify({"erro": "Falha na conexão com o banco Oracle"}), 500
+
+    cursor = conn.cursor()
+    try:
+        # Mapeia os tipos suportados para parâmetros de saída (OUT)
+        tipos = {
+            "number": oracledb.NUMBER,
+            "string": oracledb.STRING,
+            "cursor": oracledb.CURSOR,
+            "date": oracledb.DATETIME,
+        }
+
+        # Monta a lista de argumentos: entradas + variáveis de saída
+        args = list(parametros)
+        out_vars = []
+        for op in out_params:
+            tipo = tipos.get(str(op.get("tipo", "string")).lower(), oracledb.STRING)
+            var = cursor.var(tipo)
+            out_vars.append((op.get("nome"), tipo, var))
+            args.append(var)
+
+        cursor.callproc(nome, args)
+        conn.commit()
+
+        # Coleta os valores de saída
+        saida = {}
+        for idx, (nome_out, tipo, var) in enumerate(out_vars):
+            chave = nome_out or f"out_{idx}"
+            valor = var.getvalue()
+            if tipo == oracledb.CURSOR and valor is not None:
+                colunas = [col[0] for col in valor.description]
+                saida[chave] = [dict(zip(colunas, linha)) for linha in valor.fetchall()]
+            else:
+                saida[chave] = valor
+
+        return jsonify({"resultado": saida}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"erro": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
