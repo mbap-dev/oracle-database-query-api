@@ -1,10 +1,22 @@
 from flask import Flask, jsonify, request
+from datetime import datetime
 import oracledb
 import os
 
 app = Flask(__name__)
 
 oracledb.init_oracle_client(lib_dir="/usr/lib/oracle/instantclient")
+
+def _converter_valor(v):
+    # Converte strings em datas quando vierem no formato ISO,
+    # para que parâmetros DATE da procedure sejam bindados corretamente.
+    if isinstance(v, str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(v, fmt)
+            except ValueError:
+                pass
+    return v
 
 def conectar_oracle(dsn_tns=None, usuario=None, senha=None):
     dsn_tns = dsn_tns or f"{os.getenv('ORACLE_HOST')}:{os.getenv('ORACLE_PORT')}/{os.getenv('ORACLE_SERVICE_NAME')}"
@@ -61,8 +73,8 @@ def executar_procedure():
     if not nome:
         return jsonify({"erro": "Parâmetro 'procedure' é obrigatório"}), 400
 
-    if not isinstance(parametros, list):
-        return jsonify({"erro": "Parâmetro 'parametros' deve ser uma lista"}), 400
+    if not isinstance(parametros, (list, dict)):
+        return jsonify({"erro": "Parâmetro 'parametros' deve ser uma lista (posicional) ou objeto (nomeado)"}), 400
 
     if not isinstance(out_params, list):
         return jsonify({"erro": "Parâmetro 'out_params' deve ser uma lista"}), 400
@@ -82,16 +94,30 @@ def executar_procedure():
             "date": oracledb.DATETIME,
         }
 
-        # Monta a lista de argumentos: entradas + variáveis de saída
-        args = list(parametros)
+        # Modo nomeado (objeto) ou posicional (lista)
+        named_mode = isinstance(parametros, dict)
+        if named_mode:
+            pos_args = []
+            kw_args = {k: _converter_valor(v) for k, v in parametros.items()}
+        else:
+            pos_args = [_converter_valor(v) for v in parametros]
+            kw_args = {}
+
+        # Cria as variáveis de saída (OUT) e as adiciona aos argumentos
         out_vars = []
-        for op in out_params:
+        for idx, op in enumerate(out_params):
             tipo = tipos.get(str(op.get("tipo", "string")).lower(), oracledb.STRING)
             var = cursor.var(tipo)
-            out_vars.append((op.get("nome"), tipo, var))
-            args.append(var)
+            nome_out = op.get("nome")
+            out_vars.append((nome_out or f"out_{idx}", tipo, var))
+            if named_mode:
+                if not nome_out:
+                    return jsonify({"erro": "Em modo nomeado, cada item de 'out_params' precisa de 'nome'"}), 400
+                kw_args[nome_out] = var
+            else:
+                pos_args.append(var)
 
-        cursor.callproc(nome, args)
+        cursor.callproc(nome, pos_args, kw_args)
         conn.commit()
 
         # Coleta os valores de saída
